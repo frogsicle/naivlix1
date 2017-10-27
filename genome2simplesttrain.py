@@ -4,6 +4,26 @@ import getopt
 import random
 
 
+class Yformatr:
+    allowed_types = ['%', 'b']
+
+    def __init__(self):
+        self.out_type = None
+
+    def format(self, numseq, percent_coding, cds_or_not):
+        if self.out_type is None:
+            raise ValueError("out_type must be set prior to output formatting")
+        elif self.out_type == '%':
+            ylist = [round(percent_coding, 2)]
+        elif self.out_type == 'b':
+            ylist = cds_or_not
+        else:
+            raise ValueError("unrecognized/unimplemented output format")
+
+        lineout = ','.join([str(x) for x in numseq + ylist]) + '\n'
+        return lineout
+
+
 def fasta2seqs(fastafile, headerchar=' '):
     seqs = {}
     running_seq = ''
@@ -66,7 +86,7 @@ def tree2train(tree, size, seq=None):
 
         subseq = seq[i:end]
         numseq = atcg2numbers(subseq)
-        yield((numseq, percent_coding))
+        yield((numseq, percent_coding, cds_or_not))
 
 
 def atcg2numbers(seq):
@@ -106,6 +126,7 @@ requires:
 -f|--fasta=     genome file in fasta format
 -g|--gff=       genes / features in gff3 format (including CDS)
 -o|--out=       output file prefix (produces prefix.x.csv and prefix.y.csv)
+-t|--type=      type of score {'%': percent coding, 'b': boolean "is coding" by pos} (default: '%')
 optional:
 -s|--size=      desired bp per genome 'piece' (default = 196)
 -h|--help       prints this
@@ -125,10 +146,12 @@ def main():
     size = 196
     train_prob = 0.6
     val_prob = 0.2
+    allowed_types = Yformatr.allowed_types
+    out_type = '%'
 
     try:
-        opts, args = getopt.gnu_getopt(sys.argv[1:], "f:g:s:o:h",
-                                       ["fasta=", "gff=", "size=", "help"])
+        opts, args = getopt.gnu_getopt(sys.argv[1:], "f:g:s:o:t:h",
+                                       ["fasta=", "gff=", "size=", "type=", "help"])
     except getopt.GetoptError as err:
         print(str(err))
         usage()
@@ -141,6 +164,11 @@ def main():
             size = int(a)
         elif o in ("-o", "--out"):
             fileout = a
+        elif o in ('-t', '--type'):
+            if a in allowed_types:
+                out_type = a
+            else:
+                usage("invalid entry for -t/--type. Valid options are:{0}".format(allowed_types))
         elif o in ("-h", "--help"):
             usage()
         else:
@@ -153,6 +181,9 @@ def main():
     if test_prob <= 0:
         usage("training and validation set probabilities set too high to have a test set")
 
+    yformatr = Yformatr()
+    yformatr.out_type = out_type
+
     train_out = open(fileout + '.train.csv', 'w')
     val_out = open(fileout + '.val.csv', 'w')
     test_out = open(fileout + '.test.csv', 'w')
@@ -163,8 +194,8 @@ def main():
     trees = gff2trees(gff)
     for treek in trees:
         tree = trees[treek]
-        for numseq, percent_coding in tree2train(tree, size, genome[treek]):
-            lineout = ','.join([str(x) for x in numseq + [round(percent_coding, 2)]]) + '\n'
+        for numseq, percent_coding, cds_or_not in tree2train(tree, size, genome[treek]):
+            lineout = yformatr.format(numseq, percent_coding, cds_or_not)
             a_number = random.uniform(0, 1)
             if a_number <= train_prob:
                 train_out.write(lineout)
