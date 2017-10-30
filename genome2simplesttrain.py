@@ -89,7 +89,7 @@ def tree2train(tree, size, seq=None):
         yield((numseq, percent_coding, cds_or_not))
 
 
-def atcg2numbers(seq):
+def atcg2numbers(seq, spread_evenly=True):
     decode = {'a': [1, 0, 0, 0],
               't': [0, 1, 0, 0],
               'c': [0, 0, 1, 0],
@@ -105,6 +105,12 @@ def atcg2numbers(seq):
               'h': [0.33, 0.33, 0.33, 0],
               'b': [0, 0.33, 0.33, 0.33],
               'n': [0.25, 0.25, 0.25, 0.25]}
+    # strip ambiguous codes to 0s if not spreading them evenly
+    if not spread_evenly:
+        for key in decode:
+            if key not in ['a', 't', 'c', 'g']:
+                decode[key] = [0, 0, 0, 0]
+
     onfail = [0, 0, 0, 0]
     seq = seq.lower()
     out = []
