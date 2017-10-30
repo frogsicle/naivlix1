@@ -28,7 +28,7 @@ optional:
 
 
 def not_motif(len_motif):
-    overweight_known = 'ATCG' * 100
+    overweight_known = 'ATCG' * 500
     overweight_n = 'N' * 50
     choices = 'YRWSKMDVHB' + overweight_known + overweight_n
     out = ''
