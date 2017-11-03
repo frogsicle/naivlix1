@@ -64,6 +64,13 @@ def gff2trees(gfffile, feature='CDS'):
     return trees
 
 
+def nogff2trees(genome):
+    trees = {}
+    for key in genome:
+        trees[key] = intervaltree.IntervalTree()
+    return trees
+
+
 def cds_from_gff(gfffile, feature='CDS'):
     with open(gfffile) as f:
         for line in f:
@@ -74,9 +81,10 @@ def cds_from_gff(gfffile, feature='CDS'):
                     yield out
 
 
-def tree2train(tree, size, seq=None):
+def tree2train(tree, size, seq):
     size = int(size)
-    starts = range(0, tree.end() - size, size)  # -size so no handling of end-cases is required
+
+    starts = range(0, len(seq) - size, size)  # -size so no handling of end-cases is required
     for i in starts:
         end = i + size
         minitree = tree.search(i, end)
@@ -130,7 +138,7 @@ returns genome slices (of piece_size) as vector of [0s and 1s] and a score for %
 
 requires:
 -f|--fasta=     genome file in fasta format
--g|--gff=       genes / features in gff3 format (including CDS)
+-g|--gff=       genes / features in gff3 format (including CDS), [skipping -g assumes no CDS]
 -o|--out=       output file prefix (produces prefix.x.csv and prefix.y.csv)
 -t|--type=      type of score {'%': percent coding, 'b': boolean "is coding" by pos} (default: '%')
 optional:
@@ -180,8 +188,11 @@ def main():
         else:
             assert False, "unhandled option"
 
-    if fasta is None or gff is None or fileout is None:
+    if fasta is None or fileout is None:
         usage("required input missing")
+
+    if gff is None:
+        print("no gff provided, assuming all sequence is non-genic")
 
     test_prob = 1. - (train_prob + val_prob)
     if test_prob <= 0:
@@ -197,7 +208,11 @@ def main():
     # import fasta sequences
     genome = fasta2seqs(fasta)
     # gff -> interval tree
-    trees = gff2trees(gff)
+    if gff is not None:
+        trees = gff2trees(gff)
+    else:
+        trees = nogff2trees(genome)
+
     for treek in trees:
         tree = trees[treek]
         for numseq, percent_coding, cds_or_not in tree2train(tree, size, genome[treek]):
