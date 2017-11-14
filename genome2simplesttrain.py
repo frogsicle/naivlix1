@@ -77,7 +77,7 @@ def cds_from_gff(gfffile, feature='CDS'):
             if not line.startswith('#'):
                 sline = line.split('\t')
                 if sline[2] == feature:
-                    out = {'begin': int(sline[3]), 'end': int(sline[4]) + 1, 'chr': sline[0]}
+                    out = {'begin': int(sline[3]), 'end': int(sline[4]) + 1, 'chr': sline[0], 'strand': sline[6]}
                     yield out
 
 
