@@ -123,7 +123,7 @@ def range_from_size(size=196):
 
 
 def usage(x=''):
-    usestr = """ find_startcodons.py -f genome.fa -g genes.gff3 -s piece_size
+    usestr = """ find_edges.py -f genome.fa -g genes.gff3 -s piece_size
 #########
 returns genome slices (of piece_size) as vector of [0s and 1s] and a score for % coding
 
