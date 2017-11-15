@@ -5,20 +5,70 @@ import random
 import copy
 
 
-def feature_from_gff(gfffile, targ_feature='CDS', gene='gene', mRNA='mRNA'):
-    mRNAs_since_gene = 0
+class WrongLengthError(Exception):
+    pass
+
+
+# OK... I should have bothered with a real gff parser, but now I'm too lazy to switch
+def gff2interesting_bits(gfffile):
     with open(gfffile) as f:
         for line in f:
             if not line.startswith('#'):
+                line = line.rstrip()
                 sline = line.split('\t')
-                feature = sline[2]
-                if feature == gene:
-                    mRNAs_since_gene = 0
-                elif feature == mRNA:
-                    mRNAs_since_gene += 1
-                elif (feature == targ_feature) & (mRNAs_since_gene == 1):
-                    out = {'begin': int(sline[3]), 'end': int(sline[4]) + 1, 'chr': sline[0], 'strand': sline[6]}
-                    yield out
+                out = {'begin': int(sline[3]), 'end': int(sline[4]) + 1, 'chr': sline[0], 'strand': sline[6],
+                       'feature': sline[2]}
+                yield out
+
+
+def gff2first_transcript(gfffile, gene='gene', mRNA='mRNA'):
+    mRNAs_since_gene = 0
+    out = []
+    for entry in gff2interesting_bits(gfffile):
+        feature = entry['feature']
+        if feature == gene:
+            mRNAs_since_gene = 0
+            if len(out) > 0:
+                yield out
+                out = []
+        elif feature == mRNA:
+            mRNAs_since_gene += 1
+        elif mRNAs_since_gene == 1:
+            out.append(entry)
+    yield out
+
+
+def feature_from_gff(gfffile, targ_feature='CDS', gene='gene', mRNA='mRNA'):
+    for gene_entry in gff2first_transcript(gfffile, gene, mRNA):
+        for entry in gene_entry:
+            if entry['feature'] == targ_feature:
+                yield entry
+
+
+class WrongNumberOfCDSsError(Exception):
+    pass
+
+
+def start_codon_from_gff(gfffile, cds='CDS', utr5='five_prime_UTR', gene='gene', mRNA='mRNA'):
+    """identifies start codon from border of CDS and five_prime_UTR in gff file"""
+    zeros = {'cds': 0, 'utr5': 0}
+    for gene_entry in gff2first_transcript(gfffile, gene, mRNA):
+        previous_entry = {'feature': ''}
+        for entry in gene_entry:
+            counts = copy.deepcopy(zeros)
+            for e in [previous_entry, entry]:
+                if e['feature'] == cds:
+                    counts['cds'] += 1
+                elif e['feature'] == utr5:
+                    counts['utr5'] += 1
+            if counts['cds'] & counts['utr5']:
+                # export whichever was cds
+                out = [x for x in [previous_entry, entry] if x['feature'] == cds]
+                if len(out) == 1:
+                    yield out[0]
+                else:
+                    raise WrongNumberOfCDSsError()
+            previous_entry = entry
 
 
 def y_formater(numseq, cds_start_or_not):
@@ -73,8 +123,9 @@ def start_range(cds, fasta, to_start=-98, to_end=98, edge_of_interest='begin', o
         end = cds[edge_of_interest] + to_end
         out = fasta[cds['chr']][start:end]
     elif cds['strand'] == '-':
-        start = cds[other_edge] - to_start
-        end = cds[other_edge] - to_end
+        # -2 to keep start codon in exact same position
+        start = cds[other_edge] - to_start - 2
+        end = cds[other_edge] - to_end - 2
         out = fasta[cds['chr']][end:start]
         out = rc(out)
     else:
@@ -113,7 +164,7 @@ def seq2line(subseq, y, expected_length):
     if len(subseq) != expected_length:
         print('subsequence: {}'.format(subseq))
         print('y: {}'.format(y))
-        raise ValueError('length of subsequence does not match expected: {} bp'.format(expected_length))
+        raise WrongLengthError('length of subsequence does not match expected: {} bp'.format(expected_length))
     numseq = atcg2numbers(subseq)
     lineout = y_formater(numseq, y)
     return lineout
@@ -128,8 +179,9 @@ def process_cds2line(cds, genome, to_start, to_end, size, oldcds=None, edge_of_i
         y = 0
     try:
         lineout = seq2line(subseq, y, size)
-    except ValueError:
+    except WrongLengthError:
         lineout = ''
+
     return lineout
 
 
@@ -156,6 +208,7 @@ optional:
 -t|--target=    target feature (e.g. "CDS" (default) or "five_prime_UTR")
 -s|--size=      desired bp per genome 'piece' (default = 196)
 -e|--end        center sequence at 'end' of feature instead of 'start'
+-S|--atg        takes implicit start codon feature from gff (overrides -t and -e)
 -h|--help       prints this
     """
     if len(x) > 0:
@@ -175,10 +228,11 @@ def main():
     val_prob = 0.2
     feature = 'CDS'
     end = False
+    atg_only = False
 
     try:
-        opts, args = getopt.gnu_getopt(sys.argv[1:], "f:g:s:t:eo:h",
-                                       ["fasta=", "gff=", "size=", "target=", "end", "out=", "help"])
+        opts, args = getopt.gnu_getopt(sys.argv[1:], "f:g:s:t:o:eSh",
+                                       ["fasta=", "gff=", "size=", "target=", "out=", "end", "atg", "help"])
     except getopt.GetoptError as err:
         print(str(err))
         usage()
@@ -193,6 +247,8 @@ def main():
             feature = a
         elif o in ("-e", "--end"):
             end = True
+        elif o in ("-S", "--atg"):
+            atg_only = True
         elif o in ("-o", "--out"):
             fileout = a
         elif o in ("-h", "--help"):
@@ -202,6 +258,11 @@ def main():
 
     if fasta is None or fileout is None or gff is None:
         usage("required input missing")
+
+    if atg_only:
+        # because finding atg is done by finding start of CDS, not end of 5' UTR
+        # feature is ignored, if set
+        end = False
 
     # get range set up
     to_start, to_end = range_from_size(size)
@@ -221,7 +282,10 @@ def main():
     genome = fasta2seqs(fasta)
 
     # note, features are hearafter called 'cds' for historical reasons :-(
-    cdsgen = feature_from_gff(gff, feature)
+    if atg_only:
+        cdsgen = start_codon_from_gff(gff)
+    else:
+        cdsgen = feature_from_gff(gff, feature)
 
     # handle first element seperately, so the rest can be done in edge, not-edge pairs
     oldcds = next(cdsgen)
