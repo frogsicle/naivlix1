@@ -71,8 +71,11 @@ def start_codon_from_gff(gfffile, cds='CDS', utr5='five_prime_UTR', gene='gene',
             previous_entry = entry
 
 
-def y_formater(numseq, cds_start_or_not):
-    lineout = ','.join([str(x) for x in numseq + [cds_start_or_not]]) + '\n'
+def y_formater(outseq, cds_start_or_not, onehot=True):
+    if not onehot:  # assume string
+        lineout= '{},{}\n'.format(outseq, cds_start_or_not)
+    else:
+        lineout = ','.join([str(x) for x in outseq + [cds_start_or_not]]) + '\n'
     return lineout
 
 
@@ -160,17 +163,21 @@ def notstart_range(cds_old, cds, fasta, to_start=-98, to_end=98, edge_of_interes
     return out
 
 
-def seq2line(subseq, y, expected_length):
+def seq2line(subseq, y, expected_length, onehot=True):
     if len(subseq) != expected_length:
         print('subsequence: {}'.format(subseq))
         print('y: {}'.format(y))
         raise WrongLengthError('length of subsequence does not match expected: {} bp'.format(expected_length))
-    numseq = atcg2numbers(subseq)
-    lineout = y_formater(numseq, y)
+    if onehot:
+        outseq = atcg2numbers(subseq)
+    else:
+        outseq = subseq
+    lineout = y_formater(outseq, y, onehot)
     return lineout
 
 
-def process_cds2line(cds, genome, to_start, to_end, size, oldcds=None, edge_of_interest='begin', other_edge='end'):
+def process_cds2line(cds, genome, to_start, to_end, size, oldcds=None, edge_of_interest='begin', other_edge='end',
+                     onehot=True):
     if oldcds is None:
         subseq = start_range(cds, genome, to_start, to_end, edge_of_interest, other_edge)
         y = 1
@@ -178,7 +185,7 @@ def process_cds2line(cds, genome, to_start, to_end, size, oldcds=None, edge_of_i
         subseq = notstart_range(oldcds, cds, genome, to_start, to_end, edge_of_interest, other_edge)
         y = 0
     try:
-        lineout = seq2line(subseq, y, size)
+        lineout = seq2line(subseq, y, size, onehot)
     except WrongLengthError:
         lineout = ''
 
@@ -209,6 +216,7 @@ optional:
 -s|--size=      desired bp per genome 'piece' (default = 196)
 -e|--end        center sequence at 'end' of feature instead of 'start'
 -S|--atg        takes implicit start codon feature from gff (overrides -t and -e)
+-r|--raw        returns raw sequence instead of flattened ~onehot vector for ATCG
 -b|--num_bg=    number of background or 'negative' examples per positive (default=1)
 -h|--help       prints this
     """
@@ -231,10 +239,12 @@ def main():
     end = False
     atg_only = False
     num_bg = 1
+    onehot = True
 
     try:
-        opts, args = getopt.gnu_getopt(sys.argv[1:], "f:g:s:t:o:b:eSh",
-                                       ["fasta=", "gff=", "size=", "target=", "out=", "num_bg=", "end", "atg", "help"])
+        opts, args = getopt.gnu_getopt(sys.argv[1:], "f:g:s:t:o:b:erSh",
+                                       ["fasta=", "gff=", "size=", "target=", "out=", "num_bg=", "end", "atg",
+                                        "raw", "help"])
     except getopt.GetoptError as err:
         print(str(err))
         usage()
@@ -251,6 +261,8 @@ def main():
             num_bg = int(a)
         elif o in ("-e", "--end"):
             end = True
+        elif o in ("-r", "--raw"):
+            onehot = False
         elif o in ("-S", "--atg"):
             atg_only = True
         elif o in ("-o", "--out"):
@@ -294,7 +306,7 @@ def main():
     # handle first element seperately, so the rest can be done in edge, not-edge pairs
     oldcds = next(cdsgen)
     lineout = process_cds2line(oldcds, genome, to_start, to_end, size=size, edge_of_interest=edge_of_interest,
-                               other_edge=other_edge)
+                               other_edge=other_edge, onehot=onehot)
     train_out.write(lineout)
 
     for cds in cdsgen:
@@ -304,11 +316,11 @@ def main():
         if oldcds['chr'] == cds['chr']:
             for _ in range(num_bg):
                 ns_lineout += process_cds2line(cds, genome, to_start, to_end, size=size, oldcds=oldcds,
-                                               edge_of_interest=edge_of_interest, other_edge=other_edge)
+                                               edge_of_interest=edge_of_interest, other_edge=other_edge, onehot=onehot)
 
         # the current is a start
         s_lineout = process_cds2line(cds, genome, to_start, to_end, size=size, edge_of_interest=edge_of_interest,
-                                     other_edge=other_edge)
+                                     other_edge=other_edge, onehot=onehot)
 
         linesout = ns_lineout + s_lineout
 
