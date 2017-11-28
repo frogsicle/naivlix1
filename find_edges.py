@@ -209,6 +209,7 @@ optional:
 -s|--size=      desired bp per genome 'piece' (default = 196)
 -e|--end        center sequence at 'end' of feature instead of 'start'
 -S|--atg        takes implicit start codon feature from gff (overrides -t and -e)
+-b|--num_bg=    number of background or 'negative' examples per positive (default=1)
 -h|--help       prints this
     """
     if len(x) > 0:
@@ -229,10 +230,11 @@ def main():
     feature = 'CDS'
     end = False
     atg_only = False
+    num_bg = 1
 
     try:
-        opts, args = getopt.gnu_getopt(sys.argv[1:], "f:g:s:t:o:eSh",
-                                       ["fasta=", "gff=", "size=", "target=", "out=", "end", "atg", "help"])
+        opts, args = getopt.gnu_getopt(sys.argv[1:], "f:g:s:t:o:b:eSh",
+                                       ["fasta=", "gff=", "size=", "target=", "out=", "num_bg=", "end", "atg", "help"])
     except getopt.GetoptError as err:
         print(str(err))
         usage()
@@ -245,6 +247,8 @@ def main():
             size = int(a)
         elif o in ("-t", "--target"):
             feature = a
+        elif o in ("-b", "--num_bg"):
+            num_bg = int(a)
         elif o in ("-e", "--end"):
             end = True
         elif o in ("-S", "--atg"):
@@ -296,9 +300,11 @@ def main():
     for cds in cdsgen:
         ns_lineout = ''
         # the space in between the previous and current cds, not a start
+
         if oldcds['chr'] == cds['chr']:
-            ns_lineout = process_cds2line(cds, genome, to_start, to_end, size=size, oldcds=oldcds,
-                                          edge_of_interest=edge_of_interest, other_edge=other_edge)
+            for _ in range(num_bg):
+                ns_lineout += process_cds2line(cds, genome, to_start, to_end, size=size, oldcds=oldcds,
+                                               edge_of_interest=edge_of_interest, other_edge=other_edge)
 
         # the current is a start
         s_lineout = process_cds2line(cds, genome, to_start, to_end, size=size, edge_of_interest=edge_of_interest,
