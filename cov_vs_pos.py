@@ -28,8 +28,8 @@ class Genome:
         self.chromosomes[old_chrom] = Chromosome(coverage, self.fasta[old_chrom], bin_size=size)
 
     def slice_xy_pairs(self, n_pieces):
-        for chromosome in self.chromosomes:
-            for seq, cov in chromosome.slice(n_pieces):
+        for chromo in self.chromosomes:
+            for seq, cov in self.chromosomes[chromo].slice(n_pieces):
                 yield seq, cov
 
 
@@ -50,7 +50,7 @@ class Chromosome:
             seq = self.sequence[i:(i + n_bp)]
             cov = self.coverage[i_cov:(i_cov + n_coverage_bins)]
             if len(cov) < n_coverage_bins:  # AKA, add padding if we ran off end of sequence
-                n_coverage_bins += [0] * (n_coverage_bins - len(cov))
+                cov += [0] * (n_coverage_bins - len(cov))
                 seq += "N" * (n_bp - len(seq))
             yield seq, cov
 
@@ -88,7 +88,7 @@ class Exporter:
 class TextExporter(Exporter):
     def open(self, prefix):
         for key in Exporter.sets:
-            self.files[key] = [open('{}.{}.csv'.format(prefix, key), 'w')]
+            self.files[key] = open('{}.{}.csv'.format(prefix, key), 'w')
 
     def export(self, x, y):
         key = self.which_set()
@@ -171,6 +171,8 @@ def group_reads(bam, fai, size=32):
     """step through genome and yield all reads overlapping each step"""
     bamgen = gen_bam(bam)
     latest = next(bamgen)
+    while latest.iv is None: # should skip passed all unaligned if they are sorted to the start
+        latest = next(bamgen)
     read_group = []
     more_remaining = True
 
@@ -179,12 +181,19 @@ def group_reads(bam, fai, size=32):
         end_at = fai[chromo]
         for i in range(0, end_at, size):  # should pad to next length divisible by size, I think...
             i_next = i + size
-            while (latest.iv.start <= i_next) & (latest.iv.chrom == chromo):
-                read_group.append(latest)
-                try:
-                    latest = next(bamgen)
-                except StopIteration:
-                    more_remaining = False
+            if latest.iv is not None:  # stop looking for more reads if the last one in the file was not aligned
+                while (latest.iv.start <= i_next) & (latest.iv.chrom == chromo):
+                    read_group.append(latest)
+                    try:
+                        latest = next(bamgen)
+                        while latest.iv is None:  # ignore non-aligned reads?
+                            latest = next(bamgen)
+                    except StopIteration:
+                        more_remaining = False
+                        if latest.iv is None:
+                            print('Info, last non-none alignment')
+                            print('chr: {}, i: {}, rg [-1]: {}'.format(chromo, i, read_group[-1]))
+                        break
             read_group = [x for x in read_group if x.iv.end >= i]  # drop alignments that no longer overlap
             yield read_group, i, i_next, chromo
 
@@ -238,6 +247,7 @@ def main():
     for x, y in genome.slice_xy_pairs(n_pieces):
         exporter.export(x, y)
 
+    exporter.close()
 
 if __name__ == "__main__":
     main()
