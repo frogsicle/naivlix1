@@ -90,14 +90,18 @@ class TextExporter(Exporter):
         for key in Exporter.sets:
             self.files[key] = open('{}.{}.csv'.format(prefix, key), 'w')
 
-    def export(self, x, y):
+    def export(self, x, y, export_x=True):
         key = self.which_set()
-        x = self.formatter(x)
+        if export_x:
+            x = self.formatter(x)
+        else:
+            x = None
         lineout = to_text_line(x, y)
         self.files[key].write(lineout)
 
 
 class TrainOnlyTextExporter(TextExporter):
+
     def which_set(self):
         return 'train'
 
@@ -107,7 +111,9 @@ def to_text_line(x, y):
         y = ','.join([str(w) for w in y])
     elif isinstance(y, int) or isinstance(y, float):
         y = str(y)
-    if isinstance(x, list):
+    if x is None:
+        x = ''
+    elif isinstance(x, list):
         x = ','.join([str(w) for w in x])
     if isinstance(x, str) and isinstance(y, str):
         return '{},{}\n'.format(x, y)
@@ -141,6 +147,9 @@ requires:
 
 optional:
 --train_only        returns all x,y pairs in one file (train)
+--skip_x            returns '',y
+[the above two parameters are there for cases where you have multiple y per x, and want to join them later]
+
 -s|--size=          desired bp per genome 'piece' (default = 32)
 -n|--pieces=        desired number of pieces per training unit (default = 128)
 -h|--help           prints this
@@ -216,11 +225,12 @@ def main():
     fileout = None
     n_pieces = 128
     train_only = False
+    export_x = True
 
     try:
         opts, args = getopt.gnu_getopt(sys.argv[1:], "o:b:f:s:n:h",
                                        ["out=", "bam=", "fasta=", "size=", "pieces=", "help",
-                                        "train_only"])
+                                        "train_only", "skip_x"])
     except getopt.GetoptError as err:
         print(str(err))
         usage()
@@ -237,6 +247,8 @@ def main():
             n_pieces = int(a)
         elif o == "--train_only":
             train_only = True
+        elif o == "--skip_x":
+            export_x = False
         elif o in ("-h", "--help"):
             usage()
         else:
@@ -259,9 +271,10 @@ def main():
     genome.fill_chromosomes(size)
 
     for x, y in genome.slice_xy_pairs(n_pieces):
-        exporter.export(x, y)
+        exporter.export(x, y, export_x)
 
     exporter.close()
+
 
 if __name__ == "__main__":
     main()
