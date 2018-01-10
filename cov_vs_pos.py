@@ -97,6 +97,11 @@ class TextExporter(Exporter):
         self.files[key].write(lineout)
 
 
+class TrainOnlyTextExporter(TextExporter):
+    def which_set(self):
+        return 'train'
+
+
 def to_text_line(x, y):
     if isinstance(y, list):
         y = ','.join([str(w) for w in y])
@@ -135,6 +140,7 @@ requires:
 -b|--bam=           input bam file
 
 optional:
+--train_only        returns all x,y pairs in one file (train)
 -s|--size=          desired bp per genome 'piece' (default = 32)
 -n|--pieces=        desired number of pieces per training unit (default = 128)
 -h|--help           prints this
@@ -209,10 +215,12 @@ def main():
     bam = None
     fileout = None
     n_pieces = 128
+    train_only = False
 
     try:
         opts, args = getopt.gnu_getopt(sys.argv[1:], "o:b:f:s:n:h",
-                                       ["out=", "bam=", "fasta=", "size=", "pieces=", "help"])
+                                       ["out=", "bam=", "fasta=", "size=", "pieces=", "help",
+                                        "train_only"])
     except getopt.GetoptError as err:
         print(str(err))
         usage()
@@ -227,6 +235,8 @@ def main():
             size = int(a)
         elif o in ("-n", "--pieces"):
             n_pieces = int(a)
+        elif o == "--train_only":
+            train_only = True
         elif o in ("-h", "--help"):
             usage()
         else:
@@ -235,7 +245,11 @@ def main():
     if fastafile is None or fileout is None or bam is None:
         usage("required input missing")
 
-    exporter = TextExporter()
+    if not train_only:
+        exporter = TextExporter()
+    else:
+        exporter = TrainOnlyTextExporter()
+
     exporter.open(fileout)
 
     fasta = fasta2seqs(fastafile)
