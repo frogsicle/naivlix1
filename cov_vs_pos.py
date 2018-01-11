@@ -74,7 +74,7 @@ class Exporter:
             out = 'test'
         return out
 
-    def export(self, x, y):
+    def export(self, x, y, export_x=True):
         pass
 
     def open(self, prefix):
@@ -86,6 +86,7 @@ class Exporter:
 
 
 class TextExporter(Exporter):
+    """exports x,y as csv"""
     def open(self, prefix):
         for key in Exporter.sets:
             self.files[key] = open('{}.{}.csv'.format(prefix, key), 'w')
@@ -94,31 +95,43 @@ class TextExporter(Exporter):
         key = self.which_set()
         if export_x:
             x = self.formatter(x)
+            lineout = to_text_line(x, y)
         else:
-            x = None
-        lineout = to_text_line(x, y)
+            lineout = to_text_line(y)
         self.files[key].write(lineout)
 
 
-class TrainOnlyTextExporter(TextExporter):
+class SplitTextExporter(Exporter):
+    """exports x as csv, and y as csv"""
+    def open(self, prefix):
+        for key in Exporter.sets:
+            for dat in ('x', 'y'):
+                self.files[dat + key] = open('{}.{}_{}.csv'.format(prefix, dat, key), 'w')
 
-    def which_set(self):
-        return 'train'
+    def export(self, x, y, export_x=True):
+        key = self.which_set()
+        if export_x:
+            lineout_x = to_text_line(x)
+            self.files['x' + key].write(lineout_x)
+        lineout_y = to_text_line(y)
+        self.files['y' + key].write(lineout_y)
 
 
-def to_text_line(x, y):
-    if isinstance(y, list):
-        y = ','.join([str(w) for w in y])
-    elif isinstance(y, int) or isinstance(y, float):
-        y = str(y)
-    if x is None:
-        x = ''
-    elif isinstance(x, list):
-        x = ','.join([str(w) for w in x])
-    if isinstance(x, str) and isinstance(y, str):
-        return '{},{}\n'.format(x, y)
-    else:
-        raise NotImplementedError
+def to_text_line(*args):
+    to_join = []
+    for sub_group in args:
+        if isinstance(sub_group, str):
+            as_string = sub_group
+        elif isinstance(sub_group, list):
+            as_string = ','.join([str(x) for x in sub_group])
+        elif isinstance(sub_group, float) or isinstance(sub_group, int):
+            as_string = str(sub_group)
+        elif sub_group is None:
+            as_string = ''
+        else:
+            raise NotImplementedError('while formatting: {}, of type: {}'.format(sub_group, type(sub_group)))
+        to_join.append(as_string)
+    return ','.join(to_join) + '\n'
 
 
 def onewarm_formatter(x):
@@ -147,8 +160,11 @@ requires:
 
 optional:
 --train_only        returns all x,y pairs in one file (train)
---skip_x            returns '',y
+--skip_x            export only y
 [the above two parameters are there for cases where you have multiple y per x, and want to join them later]
+--seperate_x        x gets seperate file from y
+-d|--deterministic= seed for deterministic "random" numbers (for later combination or simply a constant test set)
+[another option to facilitate post processing]
 
 -s|--size=          desired bp per genome 'piece' (default = 32)
 -n|--pieces=        desired number of pieces per training unit (default = 128)
@@ -226,11 +242,12 @@ def main():
     n_pieces = 128
     train_only = False
     export_x = True
+    seperate_x = False
 
     try:
-        opts, args = getopt.gnu_getopt(sys.argv[1:], "o:b:f:s:n:h",
-                                       ["out=", "bam=", "fasta=", "size=", "pieces=", "help",
-                                        "train_only", "skip_x"])
+        opts, args = getopt.gnu_getopt(sys.argv[1:], "o:b:f:s:n:d:h",
+                                       ["out=", "bam=", "fasta=", "size=", "pieces=", "deterministic=", "help",
+                                        "train_only", "skip_x", "seperate_x"])
     except getopt.GetoptError as err:
         print(str(err))
         usage()
@@ -249,6 +266,10 @@ def main():
             train_only = True
         elif o == "--skip_x":
             export_x = False
+        elif o == '--seperate_x':
+            seperate_x = True
+        elif o in ('-d', '--deterministic'):
+            random.seed(a)
         elif o in ("-h", "--help"):
             usage()
         else:
@@ -257,10 +278,14 @@ def main():
     if fastafile is None or fileout is None or bam is None:
         usage("required input missing")
 
-    if not train_only:
-        exporter = TextExporter()
+    if seperate_x:
+        exporter = SplitTextExporter()
     else:
-        exporter = TrainOnlyTextExporter()
+        exporter = TextExporter()
+
+    if train_only:
+        exporter.train_prob = 1.0
+        exporter.val_prob = 0.0  # technically irrelevant, but mentally nicer
 
     exporter.open(fileout)
 
