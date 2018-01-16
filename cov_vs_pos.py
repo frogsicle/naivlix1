@@ -58,9 +58,9 @@ class Chromosome:
 class Exporter:
     sets = ["train", "val", "test"]
 
-    def __init__(self):
+    def __init__(self, formatter):
         self.files = {}
-        self.formatter = onewarm_formatter
+        self.formatter = formatter
         self.train_prob = 0.6
         self.val_prob = 0.2
 
@@ -111,6 +111,7 @@ class SplitTextExporter(Exporter):
     def export(self, x, y, export_x=True):
         key = self.which_set()
         if export_x:
+            x = self.formatter(x)
             lineout_x = to_text_line(x)
             self.files['x' + key].write(lineout_x)
         lineout_y = to_text_line(y)
@@ -168,6 +169,10 @@ optional:
 
 -s|--size=          desired bp per genome 'piece' (default = 32)
 -n|--pieces=        desired number of pieces per training unit (default = 128)
+-F|--formatter=     one of [warm, hot, raw] (default = warm) to format x as follows:
+                        warm ~ a one hot for ATCG, except with ambiguity codes respected
+                        hot = a one hot vector for ATCG
+                        raw = ATCG as is
 -h|--help           prints this
     """
     if len(x) > 0:
@@ -233,6 +238,16 @@ def gen_bam(bam):
     for aln in bam:
         yield aln
 
+def choose_formatter(user_in):
+    if user_in == 'warm':
+        return onewarm_formatter
+    elif user_in == 'hot':
+        return onehot_formatter
+    elif user_in == 'raw':
+        return raw_formatter
+    else:
+        raise ValueError('only implemented formatters are: "warm", "hot", and "raw"')
+
 
 def main():
     size = 32
@@ -243,11 +258,12 @@ def main():
     train_only = False
     export_x = True
     seperate_x = False
+    formatter = onewarm_formatter
 
     try:
-        opts, args = getopt.gnu_getopt(sys.argv[1:], "o:b:f:s:n:d:h",
+        opts, args = getopt.gnu_getopt(sys.argv[1:], "o:b:f:s:n:d:F:h",
                                        ["out=", "bam=", "fasta=", "size=", "pieces=", "deterministic=", "help",
-                                        "train_only", "skip_x", "seperate_x"])
+                                        "train_only", "skip_x", "seperate_x", "formatter="])
     except getopt.GetoptError as err:
         print(str(err))
         usage()
@@ -270,6 +286,8 @@ def main():
             seperate_x = True
         elif o in ('-d', '--deterministic'):
             random.seed(a)
+        elif o in ('-F', '--formatter'):
+            formatter = choose_formatter(a)
         elif o in ("-h", "--help"):
             usage()
         else:
@@ -279,9 +297,9 @@ def main():
         usage("required input missing")
 
     if seperate_x:
-        exporter = SplitTextExporter()
+        exporter = SplitTextExporter(formatter)
     else:
-        exporter = TextExporter()
+        exporter = TextExporter(formatter)
 
     if train_only:
         exporter.train_prob = 1.0
