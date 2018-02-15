@@ -200,6 +200,13 @@ def coverage_on_chr(read_group, i, inext):
     for read in read_group:
         len_inside = min(inext, read.iv.end) - max(i, read.iv.start)
         bp += len_inside
+
+    out = bp / size
+    if out < 0:
+        for read in read_group:
+            print('chr {}, start {}, end {}'.format(read.iv.chrom, read.iv.start, read.iv.end))
+        raise ValueError("coverage can't be {}, with i {}, inext {}, "
+                         "bp {}, size {}".format(out, i, inext, bp, size))
     return bp / size
 
 
@@ -207,13 +214,17 @@ def group_reads(bam, fai, size=32):
     """step through genome and yield all reads overlapping each step"""
     bamgen = gen_bam(bam)
     latest = next(bamgen)
-    while latest.iv is None: # should skip passed all unaligned if they are sorted to the start
+    counter = 0
+    while latest.iv is None:  # should skip passed all unaligned if they are sorted to the start
         latest = next(bamgen)
-    read_group = []
+        counter += 1
+    print('{} unaligned reads skipped at start'.format(counter))
     more_remaining = True
 
     while more_remaining:
+        read_group = []  # start every chromosome empty
         chromo = latest.iv.chrom
+        print('processing chromosome: {}'.format(chromo))
         end_at = fai[chromo]
         for i in range(0, end_at, size):  # should pad to next length divisible by size, I think...
             i_next = i + size
@@ -230,7 +241,7 @@ def group_reads(bam, fai, size=32):
                             print('Info, last non-none alignment')
                             print('chr: {}, i: {}, rg [-1]: {}'.format(chromo, i, read_group[-1]))
                         break
-            read_group = [x for x in read_group if x.iv.end >= i]  # drop alignments that no longer overlap
+            read_group = [x for x in read_group if x.iv.end > i]  # drop alignments that no longer overlap
             yield read_group, i, i_next, chromo
 
 
